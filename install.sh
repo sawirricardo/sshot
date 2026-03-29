@@ -43,11 +43,11 @@ tar -xzf "${tmpdir}/sshot.tar.gz" -C "$tmpdir"
 # Install
 if [ -w "$INSTALL_DIR" ]; then
     mv "${tmpdir}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+    chmod +x "${INSTALL_DIR}/${BINARY}"
 else
     echo "Need sudo to install to ${INSTALL_DIR}"
     sudo mv "${tmpdir}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+    sudo chmod +x "${INSTALL_DIR}/${BINARY}"
 fi
-
-chmod +x "${INSTALL_DIR}/${BINARY}"
 
 echo "Installed sshot ${tag} to ${INSTALL_DIR}/${BINARY}"

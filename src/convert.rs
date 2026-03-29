@@ -1,8 +1,8 @@
 use std::io::Cursor;
 
 use anyhow::Result;
-use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::ImageReader;
+use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 
 use crate::config::{CaptureConfig, OutputFormat};
 
@@ -23,7 +23,8 @@ fn optimize_png(png_data: &[u8]) -> Result<Vec<u8>> {
         .decode()?;
 
     let mut buf = Vec::new();
-    let encoder = PngEncoder::new_with_quality(&mut buf, CompressionType::Best, FilterType::Adaptive);
+    let encoder =
+        PngEncoder::new_with_quality(&mut buf, CompressionType::Best, FilterType::Adaptive);
     img.write_with_encoder(encoder)?;
 
     Ok(buf)

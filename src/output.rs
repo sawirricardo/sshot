@@ -42,7 +42,13 @@ fn extract_domain(raw_url: &str) -> String {
 
 fn sanitize(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .replace("--", "-")
         .trim_matches('-')

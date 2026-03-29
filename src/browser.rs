@@ -1,35 +1,37 @@
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use chromiumoxide::Page;
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::emulation::{
     MediaFeature, SetDeviceMetricsOverrideParams, SetEmulatedMediaParams,
     SetUserAgentOverrideParams,
 };
-use chromiumoxide::cdp::browser_protocol::page::{
-    CaptureScreenshotFormat, PrintToPdfParams,
-};
+use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotFormat, PrintToPdfParams};
 use chromiumoxide::page::ScreenshotParams;
-use chromiumoxide::Page;
 use futures::StreamExt;
 
 use crate::config::{CaptureConfig, OutputFormat};
 
 pub async fn capture(cfg: &CaptureConfig) -> Result<Vec<u8>> {
+    let profile_dir = TempProfileDir::new()?;
     let browser_config = BrowserConfig::builder()
         .window_size(cfg.width, cfg.height)
+        .user_data_dir(profile_dir.path())
         .arg("--disable-gpu")
         .arg("--no-sandbox")
         .build()
         .map_err(|e| anyhow::anyhow!("failed to build browser config: {}", e))?;
 
-    let (mut browser, mut handler) = Browser::launch(browser_config)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to launch Chrome. Is Chrome/Chromium installed? Error: {}", e))?;
+    let (mut browser, mut handler) = Browser::launch(browser_config).await.map_err(|e| {
+        anyhow::anyhow!(
+            "failed to launch Chrome. Is Chrome/Chromium installed? Error: {}",
+            e
+        )
+    })?;
 
-    let handle = tokio::spawn(async move {
-        while let Some(_event) = handler.next().await {}
-    });
+    let handle = tokio::spawn(async move { while let Some(_event) = handler.next().await {} });
 
     let page = browser.new_page("about:blank").await?;
 
@@ -56,6 +58,46 @@ pub async fn capture(cfg: &CaptureConfig) -> Result<Vec<u8>> {
     handle.await?;
 
     Ok(data)
+}
+
+struct TempProfileDir {
+    path: PathBuf,
+}
+
+impl TempProfileDir {
+    fn new() -> Result<Self> {
+        let mut path = std::env::temp_dir();
+        let pid = std::process::id();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| anyhow::anyhow!("failed to determine current time: {}", e))?
+            .as_nanos();
+        path.push(format!("sshot-chromium-profile-{pid}-{nanos}"));
+        std::fs::create_dir(&path).map_err(|e| {
+            anyhow::anyhow!(
+                "failed to create Chrome profile dir '{}': {}",
+                path.display(),
+                e
+            )
+        })?;
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempProfileDir {
+    fn drop(&mut self) {
+        if let Err(err) = std::fs::remove_dir_all(&self.path) {
+            eprintln!(
+                "warning: failed to remove temp Chrome profile '{}': {}",
+                self.path.display(),
+                err
+            );
+        }
+    }
 }
 
 async fn apply_emulation(page: &Page, cfg: &CaptureConfig) -> Result<()> {
@@ -104,10 +146,9 @@ async fn capture_full_page(page: &Page) -> Result<Vec<u8>> {
 }
 
 async fn capture_selector(page: &Page, selector: &str) -> Result<Vec<u8>> {
-    let element = page
-        .find_element(selector)
-        .await
-        .map_err(|_| anyhow::anyhow!("element matching selector '{}' not found on page", selector))?;
+    let element = page.find_element(selector).await.map_err(|_| {
+        anyhow::anyhow!("element matching selector '{}' not found on page", selector)
+    })?;
 
     let screenshot = element.screenshot(CaptureScreenshotFormat::Png).await?;
     Ok(screenshot)
@@ -119,4 +160,19 @@ async fn capture_pdf(page: &Page) -> Result<Vec<u8>> {
     params.prefer_css_page_size = Some(true);
     let data = page.pdf(params).await?;
     Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TempProfileDir;
+
+    #[test]
+    fn creates_unique_profile_dirs() {
+        let first = TempProfileDir::new().unwrap();
+        let second = TempProfileDir::new().unwrap();
+
+        assert_ne!(first.path(), second.path());
+        assert!(first.path().exists());
+        assert!(second.path().exists());
+    }
 }

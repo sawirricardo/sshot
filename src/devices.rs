@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 pub struct DevicePreset {
     pub name: &'static str,

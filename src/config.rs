@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::devices;
 use crate::output;
@@ -20,7 +20,10 @@ impl OutputFormat {
             "webp" => Ok(Self::Webp),
             "avif" => Ok(Self::Avif),
             "pdf" => Ok(Self::Pdf),
-            _ => bail!("unsupported format '{}'. Supported: png, jpeg, webp, avif, pdf", s),
+            _ => bail!(
+                "unsupported format '{}'. Supported: png, jpeg, webp, avif, pdf",
+                s
+            ),
         }
     }
 
@@ -112,7 +115,10 @@ impl CaptureConfig {
 
         let parts: Vec<&str> = ratio.split(':').collect();
         if parts.len() != 2 {
-            bail!("invalid aspect ratio '{}'. Expected format: W:H (e.g., 16:9, 4:3)", ratio);
+            bail!(
+                "invalid aspect ratio '{}'. Expected format: W:H (e.g., 16:9, 4:3)",
+                ratio
+            );
         }
 
         let w: u32 = parts[0]
@@ -166,7 +172,11 @@ impl CaptureConfig {
 
 fn normalize_url(raw: &str) -> Result<String> {
     let url_str = if !raw.starts_with("http://") && !raw.starts_with("https://") {
-        format!("https://{}", raw)
+        if is_probably_http_target(raw) {
+            format!("http://{}", raw)
+        } else {
+            format!("https://{}", raw)
+        }
     } else {
         raw.to_string()
     };
@@ -174,4 +184,63 @@ fn normalize_url(raw: &str) -> Result<String> {
     url::Url::parse(&url_str).map_err(|e| anyhow::anyhow!("invalid URL '{}': {}", raw, e))?;
 
     Ok(url_str)
+}
+
+fn is_probably_http_target(raw: &str) -> bool {
+    let candidate = raw
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(raw)
+        .trim_matches(|c| c == '[' || c == ']')
+        .to_ascii_lowercase();
+
+    candidate == "localhost"
+        || candidate.starts_with("localhost:")
+        || candidate == "::1"
+        || candidate.starts_with("::1:")
+        || candidate.starts_with("127.")
+        || candidate.starts_with("10.")
+        || candidate.starts_with("192.168.")
+        || is_private_172_host(&candidate)
+}
+
+fn is_private_172_host(candidate: &str) -> bool {
+    let host = candidate.split(':').next().unwrap_or(candidate);
+    let mut octets = host.split('.');
+    match (octets.next(), octets.next()) {
+        (Some("172"), Some(second)) => second
+            .parse::<u8>()
+            .map(|value| (16..=31).contains(&value))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_url;
+
+    #[test]
+    fn preserves_https_for_public_hosts_without_scheme() {
+        assert_eq!(
+            normalize_url("example.com/docs").unwrap(),
+            "https://example.com/docs"
+        );
+    }
+
+    #[test]
+    fn defaults_localhost_to_http() {
+        assert_eq!(
+            normalize_url("localhost:3000/dashboard").unwrap(),
+            "http://localhost:3000/dashboard"
+        );
+    }
+
+    #[test]
+    fn defaults_private_ipv4_hosts_to_http() {
+        assert_eq!(
+            normalize_url("192.168.1.20/status").unwrap(),
+            "http://192.168.1.20/status"
+        );
+    }
 }

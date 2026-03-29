@@ -7,9 +7,14 @@ mod output;
 use anyhow::Result;
 use clap::Parser;
 use config::CaptureConfig;
+use std::path::Path;
 
 #[derive(Parser)]
-#[command(name = "sshot", version, about = "A fast CLI tool for taking website screenshots")]
+#[command(
+    name = "sshot",
+    version,
+    about = "A fast CLI tool for taking website screenshots"
+)]
 struct Cli {
     /// The URL to screenshot
     url: String,
@@ -100,7 +105,7 @@ async fn main() -> Result<()> {
     let data = browser::capture(&cfg).await?;
     let converted = convert::convert(&data, &cfg)?;
 
-    std::fs::write(&output_path, &converted)?;
+    write_output(&output_path, &converted)?;
 
     let size = converted.len();
     let human_size = if size > 1_048_576 {
@@ -112,4 +117,35 @@ async fn main() -> Result<()> {
     println!("Saved {} ({})", output_path, human_size);
 
     Ok(())
+}
+
+fn write_output(path: &str, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = Path::new(path)
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    std::fs::write(path, bytes)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_output;
+
+    #[test]
+    fn creates_parent_directories_for_nested_output_paths() {
+        let mut root = std::env::temp_dir();
+        root.push(format!("sshot-write-output-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+
+        let output = root.join("screenshots").join("home.png");
+        write_output(output.to_str().unwrap(), b"png-bytes").unwrap();
+
+        assert_eq!(std::fs::read(&output).unwrap(), b"png-bytes");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
